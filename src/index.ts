@@ -122,11 +122,31 @@ class SpotifyApiClient {
     }
 
     async fetchPlaylists(): Promise<any> {
-        const result = await fetch("https://api.spotify.com/v1/me/playlists", {
-            method: "GET", headers: { Authorization: `Bearer ${this.accessToken}` }
-        });
+        const playlists: any[] = [];
+        let nextUrl: string | null = "https://api.spotify.com/v1/me/playlists?limit=50";
+        let total = 0;
 
-        return await result.json();
+        while (nextUrl) {
+            const result: Response = await fetch(nextUrl, {
+                headers: { Authorization: `Bearer ${this.accessToken}` }
+            });
+
+            if (!result.ok) {
+                const errorBody = await result.text();
+                throw new Error(`Failed to fetch playlists: ${result.status} ${errorBody}`);
+            }
+
+            const page: any = await result.json();
+            playlists.push(...page.items);
+            total = page.total;
+            nextUrl = page.next;
+        }
+
+        return {
+            items: playlists,
+            total,
+            next: null
+        };
     }
 
     async fetchPlaylist(playlist_id: string): Promise<any> {
@@ -243,22 +263,22 @@ const maxPlaylistNameLength = 100;
         try {
             setStatus(status, "Loading your profile and playlists...", "loading");
 
-        const alreadyUsed = sessionStorage.getItem("spotify_code_used");
-        if (alreadyUsed === url_code) {
-            window.history.replaceState({}, document.title, window.location.pathname);
-            await auth.redirectToLogin();
-            return;
-        }
+            const alreadyUsed = sessionStorage.getItem("spotify_code_used");
+            if (alreadyUsed === url_code) {
+                window.history.replaceState({}, document.title, window.location.pathname);
+                await auth.redirectToLogin();
+                return;
+            }
 
-        sessionStorage.setItem("spotify_code_used", url_code);
-        await auth.authenticate();
+            sessionStorage.setItem("spotify_code_used", url_code);
+            await auth.authenticate();
 
-    const api = new SpotifyApiClient(auth.GetAccessToken());
-        const profile = await api.fetchProfile();
-        const playlists = await api.fetchPlaylists();
-        
-        populateProfileUI(profile);
-        populatePlaylistsUI(playlists);
+            const api = new SpotifyApiClient(auth.GetAccessToken());
+            const profile = await api.fetchProfile();
+            const playlists = await api.fetchPlaylists();
+
+            populateProfileUI(profile);
+            populatePlaylistsUI(playlists);
             setStatus(status, "Ready.", "success");
         } catch (error) {
             const message = error instanceof Error ? error.message : "An unexpected error occurred.";
@@ -277,20 +297,20 @@ async function handleApplyOperation(auth: SpotifyAuth, status: HTMLElement, appl
         return;
     }
 
-        const set1Select = document.getElementById("set1") as HTMLSelectElement;
-        const set2Select = document.getElementById("set2") as HTMLSelectElement;
-        const operationSelect = document.getElementById("set-operation") as HTMLSelectElement;
-        const set1Id = set1Select.value;
-        const set2Id = set2Select.value;
-        const operation = operationSelect.value as SetOperation;
+    const set1Select = document.getElementById("set1") as HTMLSelectElement;
+    const set2Select = document.getElementById("set2") as HTMLSelectElement;
+    const operationSelect = document.getElementById("set-operation") as HTMLSelectElement;
+    const set1Id = set1Select.value;
+    const set2Id = set2Select.value;
+    const operation = operationSelect.value as SetOperation;
 
-        if (!set1Id || !set2Id) {
+    if (!set1Id || !set2Id) {
         setStatus(status, "Please select both playlists.", "error");
-            return;
-        }
+        return;
+    }
 
     applyOpsButton.disabled = true;
-        const api = new SpotifyApiClient(auth.GetAccessToken());
+    const api = new SpotifyApiClient(auth.GetAccessToken());
     let playlistName = "";
     let resultSet = new Set<string>();
     const newPlaylistDescription = "Created by Spotify Set Operations App";
