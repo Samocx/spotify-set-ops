@@ -113,12 +113,26 @@ class SpotifyAuth {
 class SpotifyApiClient {
     constructor(private readonly accessToken: string) {}
 
+    private async parseJsonResponse<T>(response: Response, requestName: string): Promise<T> {
+        const responseText = await response.text();
+
+        if (!response.ok) {
+            throw new Error(`${requestName} failed: ${response.status} ${responseText}`);
+        }
+
+        try {
+            return JSON.parse(responseText) as T;
+        } catch {
+            throw new Error(`${requestName} returned invalid JSON: ${responseText}`);
+        }
+    }
+
     async fetchProfile(): Promise<any> {
         const result = await fetch("https://api.spotify.com/v1/me", {
             method: "GET", headers: { Authorization: `Bearer ${this.accessToken}` }
         });
 
-        return await result.json();
+        return this.parseJsonResponse(result, "Fetching profile");
     }
 
     async fetchPlaylists(): Promise<any> {
@@ -131,12 +145,7 @@ class SpotifyApiClient {
                 headers: { Authorization: `Bearer ${this.accessToken}` }
             });
 
-            if (!result.ok) {
-                const errorBody = await result.text();
-                throw new Error(`Failed to fetch playlists: ${result.status} ${errorBody}`);
-            }
-
-            const page: any = await result.json();
+            const page: any = await this.parseJsonResponse(result, "Fetching playlists");
             playlists.push(...page.items);
             total = page.total;
             nextUrl = page.next;
@@ -155,12 +164,7 @@ class SpotifyApiClient {
             headers: { Authorization: `Bearer ${this.accessToken}` }
         });
 
-        if (!result.ok) {
-            const errorBody = await result.text();
-            throw new Error(`Failed to fetch playlist: ${result.status} ${errorBody}`);
-        }
-
-        return await result.json();
+        return this.parseJsonResponse(result, "Fetching playlist");
     }
 
     async getPlaylistSet(playlist_id: string): Promise<Set<string>> {
@@ -183,12 +187,7 @@ class SpotifyApiClient {
                 headers: { Authorization: `Bearer ${this.accessToken}` }
             });
 
-            if (!result.ok) {
-                const errorBody = await result.text();
-                throw new Error(`Failed to fetch playlist tracks: ${result.status} ${errorBody}`);
-            }
-
-            trackPage = await result.json();
+            trackPage = await this.parseJsonResponse(result, "Fetching playlist tracks");
         }
 
         return trackSet;
