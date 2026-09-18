@@ -1,0 +1,130 @@
+ body {
+  background-color: rgb(21, 9, 11);
+  color: white;
+  margin: 0;
+  padding-bottom: 64px;
+}
+
+#profile {
+  box-sizing: border-box;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 60px;
+  padding: 8px 16px;
+  background-color: rgb(105, 42, 51);
+  border-bottom: 1px solid rgb(185, 92, 105);
+}
+
+#profile h1 {
+  margin: 0;
+  font-size: 1.2rem;
+}
+
+.profile-user {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  white-space: nowrap;
+}
+
+#avatar {
+  display: block;
+  width: 40px;
+  height: 40px;
+}
+
+#avatar img {
+  display: block;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.playlist-picker {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-right: 16px;
+}
+
+.playlist-image {
+  width: 50px;
+  height: 50px;
+  object-fit: cover;
+  vertical-align: middle;
+  border-radius: 6px;
+}
+
+#set-ops {
+  box-sizing: border-box;
+  max-width: 620px;
+  margin: 0 auto;
+  padding: 40px 24px 96px;
+  text-align: center;
+}
+
+#set-ops h2 {
+  margin: 0 0 28px;
+}
+
+#set-ops > div {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  margin: 18px 0;
+}
+
+#set-ops select,
+#set-ops button {
+  box-sizing: border-box;
+  min-height: 42px;
+  padding: 9px 14px;
+  border: 1px solid rgb(185, 92, 105);
+  border-radius: 6px;
+  font: inherit;
+}
+
+#set-ops select {
+  min-width: 280px;
+  color: white;
+  background-color: rgb(60, 24, 30);
+}
+
+#set-ops button {
+  color: white;
+  background-color: rgb(105, 42, 51);
+  cursor: pointer;
+}
+
+#set-ops button:hover {
+  background-color: rgb(132, 54, 66);
+}
+
+#set-ops button:focus-visible,
+#set-ops select:focus-visible {
+  outline: 2px solid rgb(244, 174, 185);
+  outline-offset: 2px;
+}
+
+#site-footer {
+  position: fixed;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 10;
+  padding: 20px 16px;
+  text-align: center;
+  background-color: rgb(42, 20, 24);
+  border-top: 1px solid rgb(105, 42, 51);
+}
+
+#site-footer a {
+  color: rgb(244, 174, 185);
+}
