@@ -174,7 +174,7 @@ class SpotifyApiClient {
         return trackSet;
     }
 
-    async createPlaylistBySet(name: string, description: string, isPublic: boolean, set: Set<string>) {
+    async createPlaylistBySet(name: string, description: string, set: Set<string>) {
         const userProfile = await this.fetchProfile();
         const userId = userProfile.id;
 
@@ -188,7 +188,8 @@ class SpotifyApiClient {
             body: JSON.stringify({
                 name: name,
                 description: description,
-                public: isPublic
+                public: false,
+                collaborative: false
             })
         });
 
@@ -273,9 +274,8 @@ enum SetOperation {
         const operationSymbol = getOperationSymbol(operation);
         const newPlaylistName = `${set1Select.selectedOptions[0].textContent} ${operationSymbol} ${set2Select.selectedOptions[0].textContent}`;
         const newPlaylistDescription = `Created by Spotify Set Operations App`;
-        const isPublic = false;
 
-        await api.createPlaylistBySet(newPlaylistName, newPlaylistDescription, isPublic, resultSet);
+        await api.createPlaylistBySet(newPlaylistName, newPlaylistDescription, resultSet);
         alert(`New playlist "${newPlaylistName}" created with ${resultSet.size} tracks.`);
     });
 })();
