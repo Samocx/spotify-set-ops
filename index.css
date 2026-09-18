@@ -73,6 +73,37 @@
   margin: 0 0 28px;
 }
 
+#status {
+  font-size: 0.75rem;
+  min-height: 1.5em;
+}
+
+#status[data-state="loading"] {
+  color: rgb(244, 210, 148);
+}
+
+#status[data-state="success"] {
+  color: rgb(159, 224, 174);
+}
+
+#status[data-state="error"] {
+  color: rgb(255, 160, 160);
+}
+
+.loader {
+  border: 3px solid #e2e2e2;
+  border-top: 3px solid #b95c69;
+  border-radius: 50%;
+  width: 13px;
+  height: 13px;
+  animation: spin 2s ease-in-out infinite;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
 #set-ops > div {
   display: flex;
   align-items: center;
@@ -105,6 +136,11 @@
 
 #set-ops button:hover {
   background-color: rgb(132, 54, 66);
+}
+
+#set-ops button:disabled {
+  cursor: wait;
+  opacity: 0.65;
 }
 
 #set-ops button:focus-visible,

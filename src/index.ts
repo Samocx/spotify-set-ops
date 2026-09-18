@@ -229,12 +229,20 @@ enum SetOperation {
     SymmetricDifference = "symmetric-difference"
 }
 
+const maxPlaylistNameLength = 100;
+
 // on site load
 (async () => {
     const auth = new SpotifyAuth(clientId, url_code!, redirectUri, scope);
+    const status = document.getElementById("status")!;
+
     if (!url_code) {
+        setStatus(status, "Redirecting to Spotify for authentication...", "loading");
         await auth.redirectToLogin();
     } else {
+        try {
+            setStatus(status, "Loading your profile and playlists...", "loading");
+
         const alreadyUsed = sessionStorage.getItem("spotify_code_used");
         if (alreadyUsed === url_code) {
             window.history.replaceState({}, document.title, window.location.pathname);
@@ -251,34 +259,105 @@ enum SetOperation {
         
         populateProfileUI(profile);
         populatePlaylistsUI(playlists);
+            setStatus(status, "Ready.", "success");
+        } catch (error) {
+            const message = error instanceof Error ? error.message : "An unexpected error occurred.";
+            setStatus(status, `Could not load Spotify data: ${message}`, "error");
+        }
     }
 
-    const applyOpsButton = document.getElementById("apply-ops")!;
-    applyOpsButton.addEventListener("click", async () => {
+    const applyOpsButton = document.getElementById("apply-ops") as HTMLButtonElement;
+    applyOpsButton.addEventListener("click", () => {
+        handleApplyOperation(auth, status, applyOpsButton);
+    });
+})();
+
+async function handleApplyOperation(auth: SpotifyAuth, status: HTMLElement, applyOpsButton: HTMLButtonElement): Promise<void> {
+    if (applyOpsButton.disabled) {
+        return;
+    }
+
         const set1Select = document.getElementById("set1") as HTMLSelectElement;
         const set2Select = document.getElementById("set2") as HTMLSelectElement;
         const operationSelect = document.getElementById("set-operation") as HTMLSelectElement;
         const set1Id = set1Select.value;
         const set2Id = set2Select.value;
         const operation = operationSelect.value as SetOperation;
+
         if (!set1Id || !set2Id) {
-            alert("Please select both playlists.");
+        setStatus(status, "Please select both playlists.", "error");
             return;
         }
+
+    applyOpsButton.disabled = true;
         const api = new SpotifyApiClient(auth.GetAccessToken());
+    let playlistName = "";
+    let resultSet = new Set<string>();
+    const newPlaylistDescription = "Created by Spotify Set Operations App";
+
+    try {
+        setStatus(status, "Loading playlist tracks...", "loading");
         const set1 = await api.getPlaylistSet(set1Id);
         const set2 = await api.getPlaylistSet(set2Id);
-        const resultSet = applySetOperation(set1, set2, operation);
+        resultSet = applySetOperation(set1, set2, operation);
 
-        // Create playlist with result
         const operationSymbol = getOperationSymbol(operation);
-        const newPlaylistName = `${set1Select.selectedOptions[0].textContent} ${operationSymbol} ${set2Select.selectedOptions[0].textContent}`;
-        const newPlaylistDescription = `Created by Spotify Set Operations App`;
+        playlistName = `(${set1Select.selectedOptions[0].textContent} ${operationSymbol} ${set2Select.selectedOptions[0].textContent})`;
 
-        await api.createPlaylistBySet(newPlaylistName, newPlaylistDescription, resultSet);
-        alert(`New playlist "${newPlaylistName}" created with ${resultSet.size} tracks.`);
-    });
-})();
+        if (playlistName.length > maxPlaylistNameLength) {
+            const shouldCrop = window.confirm(
+                `The playlist name is ${playlistName.length} characters long. Crop it to ${maxPlaylistNameLength} characters?`
+            );
+
+            if (!shouldCrop) {
+                setStatus(status, "Operation cancelled: the playlist name is too long.", "error");
+                return;
+            }
+
+            playlistName = playlistName.slice(0, maxPlaylistNameLength);
+        }
+
+        setStatus(status, `Creating playlist with ${resultSet.size} tracks...`, "loading");
+        await api.createPlaylistBySet(playlistName, newPlaylistDescription, resultSet);
+        setStatus(status, `Playlist created successfully with ${resultSet.size} tracks.`, "success");
+    } catch (error) {
+        if (isPlaylistNameTooLongError(error) && playlistName.length > maxPlaylistNameLength) {
+            const croppedName = playlistName.slice(0, maxPlaylistNameLength);
+            const shouldCrop = window.confirm(
+                `The playlist name is too long. Crop it to ${maxPlaylistNameLength} characters and retry?`
+            );
+
+            if (shouldCrop) {
+                try {
+                    setStatus(status, "Retrying with a shortened playlist name...", "loading");
+                    await api.createPlaylistBySet(croppedName, newPlaylistDescription, resultSet);
+                    setStatus(status, `Playlist created successfully with ${resultSet.size} tracks.`, "success");
+                    return;
+                } catch (retryError) {
+                    error = retryError;
+                }
+            }
+        }
+
+        const message = error instanceof Error ? error.message : "An unexpected error occurred.";
+        setStatus(status, `Operation failed: ${message}`, "error");
+    } finally {
+        applyOpsButton.disabled = false;
+    }
+}
+
+function isPlaylistNameTooLongError(error: unknown): boolean {
+    return error instanceof Error
+        && error.message.includes("too long playlist name");
+}
+
+function setStatus(element: HTMLElement, message: string, state: "loading" | "success" | "error"): void {
+    element.textContent = message;
+    element.dataset.state = state;
+
+    const loader = document.getElementById("loader");
+    loader?.toggleAttribute("hidden", state !== "loading");
+}
 
 function populateProfileUI(profile: any) {
     const imageUrl = profile.images?.[0]?.url;
