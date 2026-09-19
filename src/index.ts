@@ -318,6 +318,7 @@ enum PlaylistOrder {
 
 const maxPlaylistNameLength = 100;
 let activeOperationController: AbortController | null = null;
+let playlistRefreshInProgress = false;
 
 // on site load
 (async () => {
@@ -345,12 +346,21 @@ let activeOperationController: AbortController | null = null;
     }
 
     const applyOpsButton = document.getElementById("apply-ops") as HTMLButtonElement;
-    const cancelOperationButton = document.getElementById("cancel-operation") as HTMLButtonElement;
+    const cancelButton = document.getElementById("cancel-operation") as HTMLButtonElement;
+    const set1 = document.getElementById("set1") as HTMLSelectElement;
+    const set2 = document.getElementById("set2") as HTMLSelectElement;
+
     applyOpsButton.addEventListener("click", () => {
-        handleApplyOperation(auth, status, applyOpsButton, cancelOperationButton);
+        handleApplyOperation(auth, status, applyOpsButton, cancelButton);
     });
-    cancelOperationButton.addEventListener("click", () => {
+    cancelButton.addEventListener("click", () => {
         activeOperationController?.abort();
+    });
+    set1.addEventListener("click", () => {
+        refreshplaylists(auth, status, set1, set2);
+    });
+    set2.addEventListener("click", () => {
+        refreshplaylists(auth, status, set1, set2);
     });
 })();
 
@@ -424,9 +434,7 @@ async function handleApplyOperation(
 
         setStatus(status, `Creating playlist with ${resultSet.size} tracks...`, "loading");
         await api.createPlaylist(playlistName, newPlaylistDescription, orderedTracks, controller.signal);
-        setStatus(status, "Refreshing playlists...", "loading");
-        const playlists = await api.fetchPlaylists(controller.signal);
-        populatePlaylistsUI(playlists);
+        refreshplaylists(auth, status);
         setStatus(status, `Playlist created successfully with ${resultSet.size} tracks.`, "success");
     } catch (error) {
         if (error instanceof DOMException && error.name === "AbortError") {
@@ -441,9 +449,7 @@ async function handleApplyOperation(
                 try {
                     setStatus(status, "Retrying with a shortened playlist name...", "loading");
                     await api.createPlaylist(croppedName, newPlaylistDescription, orderedTracks, controller.signal);
-                    setStatus(status, "Refreshing playlists...", "loading");
-                    const playlists = await api.fetchPlaylists(controller.signal);
-                    populatePlaylistsUI(playlists);
+                    refreshplaylists(auth, status);
                     setStatus(status, `Playlist created successfully with ${resultSet.size} tracks.`, "success");
                     return;
                 } catch (retryError) {
@@ -464,6 +470,44 @@ async function handleApplyOperation(
 function isPlaylistNameTooLongError(error: unknown): boolean {
     return error instanceof Error
         && error.message.includes("too long playlist name");
+}
+
+async function refreshplaylists(auth: SpotifyAuth, status: HTMLElement, set1?: HTMLSelectElement, set2?: HTMLSelectElement): Promise<void> {
+    if (playlistRefreshInProgress) {
+        return;
+    }
+
+    playlistRefreshInProgress = true;
+    const selectedSet1 = set1?.value;
+    const selectedSet2 = set2?.value;
+
+    setStatus(status, "Refreshing playlists...", "loading");
+    const api = new SpotifyApiClient(auth);
+    try {
+        const playlists = await api.fetchPlaylists();
+        populatePlaylistsUI(playlists);
+
+        if (set1 && selectedSet1 && Array.from(set1.options).some(option => option.value === selectedSet1)) {
+            set1.value = selectedSet1;
+        }
+        if (set2 && selectedSet2 && Array.from(set2.options).some(option => option.value === selectedSet2)) {
+            set2.value = selectedSet2;
+        }
+
+        if (set1) {
+            updatePlaylistImage(set1);
+        }
+        if (set2) {
+            updatePlaylistImage(set2);
+        }
+
+        setStatus(status, "Playlists refreshed.", "success");
+    } catch (error) {
+        const message = error instanceof Error ? error.message : "An unexpected error occurred.";
+        setStatus(status, `Failed to refresh playlists: ${message}`, "error");
+    } finally {
+        playlistRefreshInProgress = false;
+    }
 }
 
 function setStatus(element: HTMLElement, message: string, state: "loading" | "success" | "error"): void {
@@ -511,8 +555,8 @@ function populatePlaylistsUI(playlists: any) {
 
     updatePlaylistImage(set1);
     updatePlaylistImage(set2);
-    set1.addEventListener("change", () => updatePlaylistImage(set1));
-    set2.addEventListener("change", () => updatePlaylistImage(set2));
+    set1.onchange = () => updatePlaylistImage(set1);
+    set2.onchange = () => updatePlaylistImage(set2);
 }
 
 function createPlaylistOption(playlist: any): HTMLOptionElement {
