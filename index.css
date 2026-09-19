@@ -167,6 +167,13 @@
   opacity: 0.65;
 }
 
+#cancel-operation {
+  background-color: rgb(60, 24, 30);
+}
+#set-ops #cancel-operation:disabled {
+  cursor: not-allowed;
+}
+
 #set-ops button:focus-visible,
 #set-ops select:focus-visible {
   outline: 2px solid rgb(244, 174, 185);

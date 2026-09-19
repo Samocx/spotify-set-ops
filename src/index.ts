@@ -193,21 +193,22 @@ class SpotifyApiClient {
         }
     }
 
-    async fetchProfile(): Promise<any> {
+    async fetchProfile(signal?: AbortSignal): Promise<any> {
         const result = await this.request("https://api.spotify.com/v1/me", {
-            method: "GET"
+            method: "GET",
+            signal
         });
 
         return this.parseJsonResponse(result, "Fetching profile");
     }
 
-    async fetchPlaylists(): Promise<any> {
+    async fetchPlaylists(signal?: AbortSignal): Promise<any> {
         const playlists: any[] = [];
         let nextUrl: string | null = "https://api.spotify.com/v1/me/playlists?limit=50";
         let total = 0;
 
         while (nextUrl) {
-            const result: Response = await this.request(nextUrl);
+            const result: Response = await this.request(nextUrl, { signal });
 
             const page: any = await this.parseJsonResponse(result, "Fetching playlists");
             playlists.push(...page.items);
@@ -222,16 +223,17 @@ class SpotifyApiClient {
         };
     }
 
-    async fetchPlaylist(playlist_id: string): Promise<any> {
+    async fetchPlaylist(playlist_id: string, signal?: AbortSignal): Promise<any> {
         const result = await this.request(`https://api.spotify.com/v1/playlists/${playlist_id}`, {
-            method: "GET"
+            method: "GET",
+            signal
         });
 
         return this.parseJsonResponse(result, "Fetching playlist");
     }
 
-    async getPlaylistSet(playlist_id: string): Promise<Set<string>> {
-        const playlist = await this.fetchPlaylist(playlist_id);
+    async getPlaylistSet(playlist_id: string, signal?: AbortSignal): Promise<Set<string>> {
+        const playlist = await this.fetchPlaylist(playlist_id, signal);
         const trackSet = new Set<string>();
         let trackPage = playlist.tracks;
 
@@ -246,7 +248,7 @@ class SpotifyApiClient {
                 break;
             }
 
-            const result = await this.request(trackPage.next);
+            const result = await this.request(trackPage.next, { signal });
 
             trackPage = await this.parseJsonResponse(result, "Fetching playlist tracks");
         }
@@ -254,8 +256,8 @@ class SpotifyApiClient {
         return trackSet;
     }
 
-    async createPlaylist(name: string, description: string, tracks: string[]) {
-        const userProfile = await this.fetchProfile();
+    async createPlaylist(name: string, description: string, tracks: string[], signal?: AbortSignal) {
+        const userProfile = await this.fetchProfile(signal);
         const userId = userProfile.id;
 
         // Create new playlist
@@ -289,6 +291,7 @@ class SpotifyApiClient {
                 headers: {
                     "Content-Type": "application/json"
                 },
+                signal,
                 body: JSON.stringify({ uris: batch })
             });
 
@@ -314,6 +317,7 @@ enum PlaylistOrder {
 }
 
 const maxPlaylistNameLength = 100;
+let activeOperationController: AbortController | null = null;
 
 // on site load
 (async () => {
@@ -341,8 +345,12 @@ const maxPlaylistNameLength = 100;
     }
 
     const applyOpsButton = document.getElementById("apply-ops") as HTMLButtonElement;
+    const cancelOperationButton = document.getElementById("cancel-operation") as HTMLButtonElement;
     applyOpsButton.addEventListener("click", () => {
-        handleApplyOperation(auth, status, applyOpsButton);
+        handleApplyOperation(auth, status, applyOpsButton, cancelOperationButton);
+    });
+    cancelOperationButton.addEventListener("click", () => {
+        activeOperationController?.abort();
     });
 })();
 
@@ -357,7 +365,12 @@ async function loadSpotifyData(auth: SpotifyAuth, status: HTMLElement): Promise<
     setStatus(status, "Ready.", "success");
 }
 
-async function handleApplyOperation(auth: SpotifyAuth, status: HTMLElement, applyOpsButton: HTMLButtonElement): Promise<void> {
+async function handleApplyOperation(
+    auth: SpotifyAuth,
+    status: HTMLElement,
+    applyOpsButton: HTMLButtonElement,
+    cancelOperationButton: HTMLButtonElement
+): Promise<void> {
     if (applyOpsButton.disabled) {
         return;
     }
@@ -377,6 +390,9 @@ async function handleApplyOperation(auth: SpotifyAuth, status: HTMLElement, appl
     }
 
     applyOpsButton.disabled = true;
+    cancelOperationButton.disabled = false;
+    const controller = new AbortController();
+    activeOperationController = controller;
     const api = new SpotifyApiClient(auth);
     let playlistName = "";
     let resultSet = new Set<string>();
@@ -385,8 +401,8 @@ async function handleApplyOperation(auth: SpotifyAuth, status: HTMLElement, appl
 
     try {
         setStatus(status, "Loading playlist tracks...", "loading");
-        const set1 = await api.getPlaylistSet(set1Id);
-        const set2 = await api.getPlaylistSet(set2Id);
+        const set1 = await api.getPlaylistSet(set1Id, controller.signal);
+        const set2 = await api.getPlaylistSet(set2Id, controller.signal);
         resultSet = applySetOperation(set1, set2, operation);
 
         const operationSymbol = getOperationSymbol(operation);
@@ -407,13 +423,15 @@ async function handleApplyOperation(auth: SpotifyAuth, status: HTMLElement, appl
         }
 
         setStatus(status, `Creating playlist with ${resultSet.size} tracks...`, "loading");
-        await api.createPlaylist(playlistName, newPlaylistDescription, orderedTracks);
+        await api.createPlaylist(playlistName, newPlaylistDescription, orderedTracks, controller.signal);
         setStatus(status, "Refreshing playlists...", "loading");
-        const playlists = await api.fetchPlaylists();
+        const playlists = await api.fetchPlaylists(controller.signal);
         populatePlaylistsUI(playlists);
         setStatus(status, `Playlist created successfully with ${resultSet.size} tracks.`, "success");
     } catch (error) {
-        if (isPlaylistNameTooLongError(error) && playlistName.length > maxPlaylistNameLength) {
+        if (error instanceof DOMException && error.name === "AbortError") {
+            setStatus(status, "Operation cancelled.", "error");
+        } else if (isPlaylistNameTooLongError(error) && playlistName.length > maxPlaylistNameLength) {
             const croppedName = playlistName.slice(0, maxPlaylistNameLength);
             const shouldCrop = window.confirm(
                 `The playlist name is too long. Crop it to ${maxPlaylistNameLength} characters and retry?`
@@ -422,9 +440,9 @@ async function handleApplyOperation(auth: SpotifyAuth, status: HTMLElement, appl
             if (shouldCrop) {
                 try {
                     setStatus(status, "Retrying with a shortened playlist name...", "loading");
-                    await api.createPlaylist(croppedName, newPlaylistDescription, orderedTracks);
+                    await api.createPlaylist(croppedName, newPlaylistDescription, orderedTracks, controller.signal);
                     setStatus(status, "Refreshing playlists...", "loading");
-                    const playlists = await api.fetchPlaylists();
+                    const playlists = await api.fetchPlaylists(controller.signal);
                     populatePlaylistsUI(playlists);
                     setStatus(status, `Playlist created successfully with ${resultSet.size} tracks.`, "success");
                     return;
@@ -438,6 +456,8 @@ async function handleApplyOperation(auth: SpotifyAuth, status: HTMLElement, appl
         setStatus(status, `Operation failed: ${message}`, "error");
     } finally {
         applyOpsButton.disabled = false;
+        cancelOperationButton.disabled = true;
+        activeOperationController = null;
     }
 }
 
