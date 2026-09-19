@@ -338,6 +338,9 @@ async function handleApplyOperation(auth: SpotifyAuth, status: HTMLElement, appl
 
         setStatus(status, `Creating playlist with ${resultSet.size} tracks...`, "loading");
         await api.createPlaylistBySet(playlistName, newPlaylistDescription, resultSet);
+        setStatus(status, "Refreshing playlists...", "loading");
+        const playlists = await api.fetchPlaylists();
+        populatePlaylistsUI(playlists);
         setStatus(status, `Playlist created successfully with ${resultSet.size} tracks.`, "success");
     } catch (error) {
         if (isPlaylistNameTooLongError(error) && playlistName.length > maxPlaylistNameLength) {
@@ -350,6 +353,9 @@ async function handleApplyOperation(auth: SpotifyAuth, status: HTMLElement, appl
                 try {
                     setStatus(status, "Retrying with a shortened playlist name...", "loading");
                     await api.createPlaylistBySet(croppedName, newPlaylistDescription, resultSet);
+                    setStatus(status, "Refreshing playlists...", "loading");
+                    const playlists = await api.fetchPlaylists();
+                    populatePlaylistsUI(playlists);
                     setStatus(status, `Playlist created successfully with ${resultSet.size} tracks.`, "success");
                     return;
                 } catch (retryError) {
