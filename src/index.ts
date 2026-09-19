@@ -16,6 +16,7 @@ class SpotifyAuth {
     private readonly verifierLength: number = 128;
     private verifier: string = ''; 
     private accessToken: string = '';
+    private refreshToken: string = '';
 
     constructor(
         private readonly clientId: string,
@@ -94,11 +95,13 @@ class SpotifyAuth {
             throw new Error(`Invalid JSON from token endpoint: ${responseText}`);
         }
 
-        const { access_token } = payload;
+        const { access_token, refresh_token } = payload;
         if (!access_token) {
             throw new Error(`No access token in token response: ${responseText}`);
         }
         this.accessToken = access_token;
+        this.refreshToken = refresh_token ?? '';
+        localStorage.removeItem("verifier");
     }
 
     GetAccessToken(): string {
@@ -108,10 +111,60 @@ class SpotifyAuth {
 
         return this.accessToken;
     }
+
+    async refreshAccessToken(): Promise<void> {
+        if (!this.refreshToken) {
+            throw new Error("Session expired. Please authenticate with Spotify again.");
+        }
+
+        const params = new URLSearchParams({
+            client_id: this.clientId,
+            grant_type: "refresh_token",
+            refresh_token: this.refreshToken
+        });
+
+        const result = await fetch("https://accounts.spotify.com/api/token", {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: params
+        });
+
+        const responseText = await result.text();
+        if (!result.ok) {
+            throw new Error(`Token refresh failed: ${result.status} ${responseText}`);
+        }
+
+        let payload: any;
+        try {
+            payload = JSON.parse(responseText);
+        } catch {
+            throw new Error(`Invalid JSON from token refresh: ${responseText}`);
+        }
+
+        if (!payload.access_token) {
+            throw new Error(`No access token in refresh response: ${responseText}`);
+        }
+
+        this.accessToken = payload.access_token;
+        this.refreshToken = payload.refresh_token ?? this.refreshToken;
+    }
 }
 
 class SpotifyApiClient {
-    constructor(private readonly accessToken: string) {}
+    constructor(private readonly auth: SpotifyAuth) {}
+
+    private async request(url: string, options: RequestInit = {}, hasRetried = false): Promise<Response> {
+        const headers = new Headers(options.headers);
+        headers.set("Authorization", `Bearer ${this.auth.GetAccessToken()}`);
+
+        const result = await fetch(url, { ...options, headers });
+        if (result.status !== 401 || hasRetried) {
+            return result;
+        }
+
+        await this.auth.refreshAccessToken();
+        return this.request(url, options, true);
+    }
 
     private async parseJsonResponse<T>(response: Response, requestName: string): Promise<T> {
         const responseText = await response.text();
@@ -128,8 +181,8 @@ class SpotifyApiClient {
     }
 
     async fetchProfile(): Promise<any> {
-        const result = await fetch("https://api.spotify.com/v1/me", {
-            method: "GET", headers: { Authorization: `Bearer ${this.accessToken}` }
+        const result = await this.request("https://api.spotify.com/v1/me", {
+            method: "GET"
         });
 
         return this.parseJsonResponse(result, "Fetching profile");
@@ -141,9 +194,7 @@ class SpotifyApiClient {
         let total = 0;
 
         while (nextUrl) {
-            const result: Response = await fetch(nextUrl, {
-                headers: { Authorization: `Bearer ${this.accessToken}` }
-            });
+            const result: Response = await this.request(nextUrl);
 
             const page: any = await this.parseJsonResponse(result, "Fetching playlists");
             playlists.push(...page.items);
@@ -159,9 +210,8 @@ class SpotifyApiClient {
     }
 
     async fetchPlaylist(playlist_id: string): Promise<any> {
-        const result = await fetch(`https://api.spotify.com/v1/playlists/${playlist_id}`, {
-            method: "GET",
-            headers: { Authorization: `Bearer ${this.accessToken}` }
+        const result = await this.request(`https://api.spotify.com/v1/playlists/${playlist_id}`, {
+            method: "GET"
         });
 
         return this.parseJsonResponse(result, "Fetching playlist");
@@ -183,9 +233,7 @@ class SpotifyApiClient {
                 break;
             }
 
-            const result = await fetch(trackPage.next, {
-                headers: { Authorization: `Bearer ${this.accessToken}` }
-            });
+            const result = await this.request(trackPage.next);
 
             trackPage = await this.parseJsonResponse(result, "Fetching playlist tracks");
         }
@@ -198,10 +246,9 @@ class SpotifyApiClient {
         const userId = userProfile.id;
 
         // Create new playlist
-        const createPlaylistResponse = await fetch(`https://api.spotify.com/v1/users/${userId}/playlists`, {
+        const createPlaylistResponse = await this.request(`https://api.spotify.com/v1/users/${userId}/playlists`, {
             method: "POST",
             headers: {
-                Authorization: `Bearer ${this.accessToken}`,
                 "Content-Type": "application/json"
             },
             body: JSON.stringify({
@@ -224,10 +271,9 @@ class SpotifyApiClient {
         const trackUris = Array.from(set).map(id => `spotify:track:${id}`);
         for (let i = 0; i < trackUris.length; i += 100) {
             const batch = trackUris.slice(i, i + 100);
-            const addTracksResponse = await fetch(`https://api.spotify.com/v1/playlists/${newPlaylistId}/tracks`, {
+            const addTracksResponse = await this.request(`https://api.spotify.com/v1/playlists/${newPlaylistId}/tracks`, {
                 method: "POST",
                 headers: {
-                    Authorization: `Bearer ${this.accessToken}`,
                     "Content-Type": "application/json"
                 },
                 body: JSON.stringify({ uris: batch })
@@ -272,7 +318,7 @@ const maxPlaylistNameLength = 100;
             sessionStorage.setItem("spotify_code_used", url_code);
             await auth.authenticate();
 
-            const api = new SpotifyApiClient(auth.GetAccessToken());
+            const api = new SpotifyApiClient(auth);
             const profile = await api.fetchProfile();
             const playlists = await api.fetchPlaylists();
 
@@ -309,7 +355,7 @@ async function handleApplyOperation(auth: SpotifyAuth, status: HTMLElement, appl
     }
 
     applyOpsButton.disabled = true;
-    const api = new SpotifyApiClient(auth.GetAccessToken());
+    const api = new SpotifyApiClient(auth);
     let playlistName = "";
     let resultSet = new Set<string>();
     const newPlaylistDescription = "Created by Spotify Set Operations App";
