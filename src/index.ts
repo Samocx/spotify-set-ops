@@ -11,6 +11,8 @@ const scope = "user-read-private "
             + "playlist-modify-private "
             + "playlist-modify-public";
 
+const refreshTokenStorageKey = "spotify_refresh_token";
+
 class SpotifyAuth {
 
     private readonly verifierLength: number = 128;
@@ -21,11 +23,13 @@ class SpotifyAuth {
     constructor(
         private readonly clientId: string,
 
-        private readonly url_code: string,
+        private readonly url_code: string | null,
         private readonly redirectUri: string,
 
         private readonly scope: string
-    ) {}
+    ) {
+        this.refreshToken = sessionStorage.getItem(refreshTokenStorageKey) ?? '';
+    }
     
     // authenification durch spotify
     async redirectToLogin(): Promise<void> {
@@ -100,7 +104,10 @@ class SpotifyAuth {
             throw new Error(`No access token in token response: ${responseText}`);
         }
         this.accessToken = access_token;
-        this.refreshToken = refresh_token ?? '';
+        this.refreshToken = refresh_token ?? this.refreshToken;
+        if (this.refreshToken) {
+            sessionStorage.setItem(refreshTokenStorageKey, this.refreshToken);
+        }
         localStorage.removeItem("verifier");
     }
 
@@ -110,6 +117,10 @@ class SpotifyAuth {
         }
 
         return this.accessToken;
+    }
+
+    hasRefreshToken(): boolean {
+        return Boolean(this.refreshToken);
     }
 
     async refreshAccessToken(): Promise<void> {
@@ -147,6 +158,7 @@ class SpotifyAuth {
 
         this.accessToken = payload.access_token;
         this.refreshToken = payload.refresh_token ?? this.refreshToken;
+        sessionStorage.setItem(refreshTokenStorageKey, this.refreshToken);
     }
 }
 
@@ -298,37 +310,27 @@ const maxPlaylistNameLength = 100;
 
 // on site load
 (async () => {
-    const auth = new SpotifyAuth(clientId, url_code!, redirectUri, scope);
+    const auth = new SpotifyAuth(clientId, url_code, redirectUri, scope);
     const status = document.getElementById("status")!;
 
-    if (!url_code) {
-        setStatus(status, "Redirecting to Spotify for authentication...", "loading");
-        await auth.redirectToLogin();
-    } else {
-        try {
-            setStatus(status, "Loading your profile and playlists...", "loading");
+    try {
+        setStatus(status, "Loading your Spotify session...", "loading");
 
-            const alreadyUsed = sessionStorage.getItem("spotify_code_used");
-            if (alreadyUsed === url_code) {
-                window.history.replaceState({}, document.title, window.location.pathname);
-                await auth.redirectToLogin();
-                return;
-            }
-
-            sessionStorage.setItem("spotify_code_used", url_code);
+        if (url_code) {
             await auth.authenticate();
-
-            const api = new SpotifyApiClient(auth);
-            const profile = await api.fetchProfile();
-            const playlists = await api.fetchPlaylists();
-
-            populateProfileUI(profile);
-            populatePlaylistsUI(playlists);
-            setStatus(status, "Ready.", "success");
-        } catch (error) {
-            const message = error instanceof Error ? error.message : "An unexpected error occurred.";
-            setStatus(status, `Could not load Spotify data: ${message}`, "error");
+            window.history.replaceState({}, document.title, window.location.pathname);
+        } else if (auth.hasRefreshToken()) {
+            await auth.refreshAccessToken();
+        } else {
+            setStatus(status, "Redirecting to Spotify for authentication...", "loading");
+            await auth.redirectToLogin();
+            return;
         }
+
+        await loadSpotifyData(auth, status);
+    } catch (error) {
+        const message = error instanceof Error ? error.message : "An unexpected error occurred.";
+        setStatus(status, `Could not load Spotify data: ${message}`, "error");
     }
 
     const applyOpsButton = document.getElementById("apply-ops") as HTMLButtonElement;
@@ -336,6 +338,17 @@ const maxPlaylistNameLength = 100;
         handleApplyOperation(auth, status, applyOpsButton);
     });
 })();
+
+async function loadSpotifyData(auth: SpotifyAuth, status: HTMLElement): Promise<void> {
+    setStatus(status, "Loading your profile and playlists...", "loading");
+    const api = new SpotifyApiClient(auth);
+    const profile = await api.fetchProfile();
+    const playlists = await api.fetchPlaylists();
+
+    populateProfileUI(profile);
+    populatePlaylistsUI(playlists);
+    setStatus(status, "Ready.", "success");
+}
 
 async function handleApplyOperation(auth: SpotifyAuth, status: HTMLElement, applyOpsButton: HTMLButtonElement): Promise<void> {
     if (applyOpsButton.disabled) {
