@@ -513,7 +513,7 @@ function updatePlaylistImage(select: HTMLSelectElement): void {
     const imageUrl = select.selectedOptions[0]?.dataset.imageUrl ?? "";
 
     image.src = imageUrl;
-    image.hidden = !imageUrl;
+    image.style.visibility = imageUrl ? "visible" : "hidden";
 }
 
 function getOperationSymbol(operation: SetOperation): string {
