@@ -15,19 +15,8 @@ const reuseStoredSession = true;
 
 import { SpotifyAuth } from "./spotify-auth";
 import { SpotifyApiClient } from "./spotify-api-client";
-
-enum SetOperation {
-    Union = "union",
-    Intersection = "intersection",
-    Difference = "difference",
-    SymmetricDifference = "symmetric-difference"
-}
-
-enum PlaylistOrder {
-    Default = "default",
-    Interlaced = "interlaced",
-    Random = "random"
-}
+import { PlaylistService } from "./playlist-service";
+import { PlaylistOrder, SetOperation } from "./set-operations";
 
 const maxPlaylistNameLength = 100;
 let activeOperationController: AbortController | null = null;
@@ -117,20 +106,15 @@ async function handleApplyOperation(
     const controller = new AbortController();
     activeOperationController = controller;
     const api = new SpotifyApiClient(auth);
+    const playlistService = new PlaylistService(api);
     let playlistName = "";
-    let resultSet = new Set<string>();
-    let orderedTracks: string[] = [];
+    let resultTrackCount = 0;
     const newPlaylistDescription = "Created by Spotify Set Operations App";
 
     try {
         setStatus(status, "Loading playlist tracks...", "loading");
-        const set1 = await api.getPlaylistSet(set1Id, controller.signal);
-        const set2 = await api.getPlaylistSet(set2Id, controller.signal);
-        resultSet = applySetOperation(set1, set2, operation);
-
         const operationSymbol = getOperationSymbol(operation);
         playlistName = `(${set1Select.selectedOptions[0].textContent} ${operationSymbol} ${set2Select.selectedOptions[0].textContent})`;
-        orderedTracks = orderPlaylistTracks(set1, set2, resultSet, order);
 
         if (playlistName.length > maxPlaylistNameLength) {
             const shouldCrop = window.confirm(
@@ -145,10 +129,18 @@ async function handleApplyOperation(
             playlistName = playlistName.slice(0, maxPlaylistNameLength);
         }
 
-        setStatus(status, `Creating playlist with ${resultSet.size} tracks...`, "loading");
-        await api.createPlaylist(playlistName, newPlaylistDescription, orderedTracks, controller.signal);
+        setStatus(status, "Loading tracks and creating playlist...", "loading");
+        resultTrackCount = await playlistService.createSetPlaylist(
+            set1Id,
+            set2Id,
+            operation,
+            order,
+            playlistName,
+            newPlaylistDescription,
+            controller.signal
+        );
         refreshplaylists(auth, status);
-        setStatus(status, `Playlist created successfully with ${resultSet.size} tracks.`, "success");
+        setStatus(status, `Playlist created successfully with ${resultTrackCount} tracks.`, "success");
     } catch (error) {
         if (error instanceof DOMException && error.name === "AbortError") {
             setStatus(status, "Operation cancelled.", "error");
@@ -161,9 +153,17 @@ async function handleApplyOperation(
             if (shouldCrop) {
                 try {
                     setStatus(status, "Retrying with a shortened playlist name...", "loading");
-                    await api.createPlaylist(croppedName, newPlaylistDescription, orderedTracks, controller.signal);
+                    resultTrackCount = await playlistService.createSetPlaylist(
+                        set1Id,
+                        set2Id,
+                        operation,
+                        order,
+                        croppedName,
+                        newPlaylistDescription,
+                        controller.signal
+                    );
                     refreshplaylists(auth, status);
-                    setStatus(status, `Playlist created successfully with ${resultSet.size} tracks.`, "success");
+                    setStatus(status, `Playlist created successfully with ${resultTrackCount} tracks.`, "success");
                     return;
                 } catch (retryError) {
                     error = retryError;
@@ -304,58 +304,4 @@ function getOperationSymbol(operation: SetOperation): string {
         case SetOperation.SymmetricDifference:
             return "△";
     }
-}
-
-function applySetOperation(set1: Set<string>, set2: Set<string>, operation: SetOperation) {
-    let resultSet = new Set<string>();
-    
-    switch (operation) {
-        case SetOperation.Union:
-            resultSet = new Set([...set1, ...set2]);
-            break;
-        case SetOperation.Intersection:
-            resultSet = new Set([...set1].filter(x => set2.has(x)));
-            break;
-        case SetOperation.Difference:
-            resultSet = new Set([...set1].filter(x => !set2.has(x)));
-            break;
-        case SetOperation.SymmetricDifference:
-            resultSet = new Set([...set1, ...set2].filter(x => !(set1.has(x) && set2.has(x))));
-            break;
-    }
-    return resultSet;
-}
-
-function orderPlaylistTracks(set1: Set<string>, set2: Set<string>, resultSet: Set<string>, order: PlaylistOrder): string[] {
-    const set1Tracks = [...set1].filter(trackId => resultSet.has(trackId));
-    const set2Tracks = [...set2].filter(trackId => resultSet.has(trackId));
-
-    if (order === PlaylistOrder.Interlaced) {
-        const interlacedTracks: string[] = [];
-        const maxLength = Math.max(set1Tracks.length, set2Tracks.length);
-
-        for (let index = 0; index < maxLength; index++) {
-            if (set1Tracks[index]) {
-                interlacedTracks.push(set1Tracks[index]);
-            }
-            if (set2Tracks[index] && interlacedTracks.indexOf(set2Tracks[index]) === -1) {
-                interlacedTracks.push(set2Tracks[index]);
-            }
-        }
-
-        return interlacedTracks;
-    }
-
-    const orderedTracks = Array.from(resultSet);
-    if (order !== PlaylistOrder.Random) {
-        return orderedTracks;
-    }
-
-    for (let index = orderedTracks.length - 1; index > 0; index--) {
-        const randomIndex = Math.floor(Math.random() * (index + 1));
-        [orderedTracks[index], orderedTracks[randomIndex]] =
-            [orderedTracks[randomIndex], orderedTracks[index]];
-    }
-
-    return orderedTracks;
 }
