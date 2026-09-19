@@ -12,6 +12,7 @@ const scope = "user-read-private "
             + "playlist-modify-public";
 
 const refreshTokenStorageKey = "spotify_refresh_token";
+const reuseStoredSession = true;
 
 class SpotifyAuth {
 
@@ -319,7 +320,7 @@ const maxPlaylistNameLength = 100;
         if (url_code) {
             await auth.authenticate();
             window.history.replaceState({}, document.title, window.location.pathname);
-        } else if (auth.hasRefreshToken()) {
+        } else if (reuseStoredSession && auth.hasRefreshToken()) {
             await auth.refreshAccessToken();
         } else {
             setStatus(status, "Redirecting to Spotify for authentication...", "loading");
