@@ -254,7 +254,7 @@ class SpotifyApiClient {
         return trackSet;
     }
 
-    async createPlaylistBySet(name: string, description: string, set: Set<string>) {
+    async createPlaylist(name: string, description: string, tracks: string[]) {
         const userProfile = await this.fetchProfile();
         const userId = userProfile.id;
 
@@ -281,7 +281,7 @@ class SpotifyApiClient {
         const newPlaylistId = newPlaylist.id;
 
         // Add tracks to new playlist in batches
-        const trackUris = Array.from(set).map(id => `spotify:track:${id}`);
+        const trackUris = tracks.map(id => `spotify:track:${id}`);
         for (let i = 0; i < trackUris.length; i += 100) {
             const batch = trackUris.slice(i, i + 100);
             const addTracksResponse = await this.request(`https://api.spotify.com/v1/playlists/${newPlaylistId}/tracks`, {
@@ -305,6 +305,12 @@ enum SetOperation {
     Intersection = "intersection",
     Difference = "difference",
     SymmetricDifference = "symmetric-difference"
+}
+
+enum PlaylistOrder {
+    Default = "default",
+    Interlaced = "interlaced",
+    Random = "random"
 }
 
 const maxPlaylistNameLength = 100;
@@ -359,9 +365,11 @@ async function handleApplyOperation(auth: SpotifyAuth, status: HTMLElement, appl
     const set1Select = document.getElementById("set1") as HTMLSelectElement;
     const set2Select = document.getElementById("set2") as HTMLSelectElement;
     const operationSelect = document.getElementById("set-operation") as HTMLSelectElement;
+    const orderSelect = document.getElementById("set-order") as HTMLSelectElement;
     const set1Id = set1Select.value;
     const set2Id = set2Select.value;
     const operation = operationSelect.value as SetOperation;
+    const order = orderSelect.value as PlaylistOrder;
 
     if (!set1Id || !set2Id) {
         setStatus(status, "Please select both playlists.", "error");
@@ -372,6 +380,7 @@ async function handleApplyOperation(auth: SpotifyAuth, status: HTMLElement, appl
     const api = new SpotifyApiClient(auth);
     let playlistName = "";
     let resultSet = new Set<string>();
+    let orderedTracks: string[] = [];
     const newPlaylistDescription = "Created by Spotify Set Operations App";
 
     try {
@@ -382,6 +391,7 @@ async function handleApplyOperation(auth: SpotifyAuth, status: HTMLElement, appl
 
         const operationSymbol = getOperationSymbol(operation);
         playlistName = `(${set1Select.selectedOptions[0].textContent} ${operationSymbol} ${set2Select.selectedOptions[0].textContent})`;
+        orderedTracks = orderPlaylistTracks(set1, set2, resultSet, order);
 
         if (playlistName.length > maxPlaylistNameLength) {
             const shouldCrop = window.confirm(
@@ -397,7 +407,7 @@ async function handleApplyOperation(auth: SpotifyAuth, status: HTMLElement, appl
         }
 
         setStatus(status, `Creating playlist with ${resultSet.size} tracks...`, "loading");
-        await api.createPlaylistBySet(playlistName, newPlaylistDescription, resultSet);
+        await api.createPlaylist(playlistName, newPlaylistDescription, orderedTracks);
         setStatus(status, "Refreshing playlists...", "loading");
         const playlists = await api.fetchPlaylists();
         populatePlaylistsUI(playlists);
@@ -412,7 +422,7 @@ async function handleApplyOperation(auth: SpotifyAuth, status: HTMLElement, appl
             if (shouldCrop) {
                 try {
                     setStatus(status, "Retrying with a shortened playlist name...", "loading");
-                    await api.createPlaylistBySet(croppedName, newPlaylistDescription, resultSet);
+                    await api.createPlaylist(croppedName, newPlaylistDescription, orderedTracks);
                     setStatus(status, "Refreshing playlists...", "loading");
                     const playlists = await api.fetchPlaylists();
                     populatePlaylistsUI(playlists);
@@ -537,4 +547,38 @@ function applySetOperation(set1: Set<string>, set2: Set<string>, operation: SetO
             break;
     }
     return resultSet;
+}
+
+function orderPlaylistTracks(set1: Set<string>, set2: Set<string>, resultSet: Set<string>, order: PlaylistOrder): string[] {
+    const set1Tracks = [...set1].filter(trackId => resultSet.has(trackId));
+    const set2Tracks = [...set2].filter(trackId => resultSet.has(trackId));
+
+    if (order === PlaylistOrder.Interlaced) {
+        const interlacedTracks: string[] = [];
+        const maxLength = Math.max(set1Tracks.length, set2Tracks.length);
+
+        for (let index = 0; index < maxLength; index++) {
+            if (set1Tracks[index]) {
+                interlacedTracks.push(set1Tracks[index]);
+            }
+            if (set2Tracks[index] && interlacedTracks.indexOf(set2Tracks[index]) === -1) {
+                interlacedTracks.push(set2Tracks[index]);
+            }
+        }
+
+        return interlacedTracks;
+    }
+
+    const orderedTracks = Array.from(resultSet);
+    if (order !== PlaylistOrder.Random) {
+        return orderedTracks;
+    }
+
+    for (let index = orderedTracks.length - 1; index > 0; index--) {
+        const randomIndex = Math.floor(Math.random() * (index + 1));
+        [orderedTracks[index], orderedTracks[randomIndex]] =
+            [orderedTracks[randomIndex], orderedTracks[index]];
+    }
+
+    return orderedTracks;
 }

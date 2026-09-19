@@ -112,6 +112,10 @@
   margin: 18px 0;
 }
 
+#set-ops .playlist-row {
+  width: 100%;
+}
+
 #set-ops select,
 #set-ops button {
   box-sizing: border-box;
@@ -126,6 +130,25 @@
   min-width: 280px;
   color: white;
   background-color: rgb(60, 24, 30);
+}
+
+#set-ops .playlist-row select {
+  flex: 1;
+  min-width: 0;
+}
+
+#set-ops .operation-row select {
+  min-width: 0;
+  width: auto;
+}
+
+#select-flex-margin {
+  width: 50px;
+}
+
+#set-operation {
+  flex: 1;
+  min-width: 0;
 }
 
 #set-ops button {
