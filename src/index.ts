@@ -12,13 +12,14 @@ const scope = "user-read-private "
             + "playlist-modify-public";
 
 const reuseStoredSession = true;
+const maxPlaylistNameLength = 100;
 
 import { SpotifyAuth } from "./spotify-auth";
 import { SpotifyApiClient } from "./spotify-api-client";
 import { PlaylistService } from "./playlist-service";
 import { PlaylistOrder, SetOperation } from "./set-operations";
 
-const maxPlaylistNameLength = 100;
+
 let activeOperationController: AbortController | null = null;
 let playlistRefreshInProgress = false;
 
@@ -95,11 +96,6 @@ async function handleApplyOperation(
     const set2Id = set2Select.value;
     const operation = operationSelect.value as SetOperation;
     const order = orderSelect.value as PlaylistOrder;
-
-    if (!set1Id || !set2Id) {
-        setStatus(status, "Please select both playlists.", "error");
-        return;
-    }
 
     applyOpsButton.disabled = true;
     cancelOperationButton.disabled = false;
